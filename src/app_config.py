@@ -1,7 +1,7 @@
 import os
 
 # To configure this application, fill in your application (client) ID, client secret, 
-# AAD tenant ID, and Azure DevOps collection name in the placeholders below.
+# Entra tenant ID, and Azure DevOps collection name in the placeholders below.
 
 CLIENT_ID = "Enter_the_Application_Id_here" 
 # Application (client) ID of app registration
