@@ -1,6 +1,5 @@
 [CmdletBinding()]
 param(    
-    [PSCredential] $Credential,
     [Parameter(Mandatory=$False, HelpMessage='Tenant ID (This is a GUID which represents the "Directory ID" of the Entra tenant into which you want to create the apps')]
     [string] $tenantId
 )
@@ -23,20 +22,13 @@ This function removes the Entra applications for the sample. These applications 
 
     # Login to Microsoft Graph PowerShell (interactive if credentials are not already provided:
     # you'll need to sign-in with creds enabling your to create apps in the tenant)
-    if (!$Credential -and $TenantId)
+    if ($TenantId)
     {
         $creds = Connect-MgGraph -TenantId $tenantId
     }
     else
     {
-        if (!$TenantId)
-        {
-            $creds = Connect-MgGraph -Credential $Credential
-        }
-        else
-        {
-            $creds = Connect-MgGraph -TenantId $tenantId -Credential $Credential
-        }
+        $creds = Connect-MgGraph
     }
 
     if (!$tenantId)
@@ -49,9 +41,9 @@ This function removes the Entra applications for the sample. These applications 
     # Removes the applications
     Write-Host "Cleaning-up applications from tenant '$tenantName'"
 
-    Write-Host "Removing 'pythonwebapp' (python-webapp) if needed"
-    Get-MgApplication -Filter "displayName eq 'python-webapp'"  | ForEach-Object {Remove-MgApplication -ApplicationId $_.Id }
-    $apps = Get-MgApplication -Filter "displayName eq 'python-webapp'"
+    Write-Host "Removing 'PAT-rotation-webapp' if needed"
+    Get-MgApplication -Filter "displayName eq 'PAT-rotation-webapp'"  | ForEach-Object {Remove-MgApplication -ApplicationId $_.Id }
+    $apps = Get-MgApplication -Filter "displayName eq 'PAT-rotation-webapp'"
     if ($apps)
     {
         Remove-MgApplication -ApplicationId $apps.Id
@@ -60,10 +52,10 @@ This function removes the Entra applications for the sample. These applications 
     foreach ($app in $apps) 
     {
         Remove-MgApplication -ApplicationId $app.Id
-        Write-Host "Removed python-webapp.."
+        Write-Host "Removed PAT-rotation-webapp.."
     }
     # also remove service principals of this app
-    Get-MgServicePrincipal -Filter "displayName eq 'python-webapp'" | ForEach-Object {Remove-MgServicePrincipal -ServicePrincipalId $_.Id -Confirm:$false}
+    Get-MgServicePrincipal -Filter "displayName eq 'PAT-rotation-webapp'" | ForEach-Object {Remove-MgServicePrincipal -ServicePrincipalId $_.Id -Confirm:$false}
     
 }
 

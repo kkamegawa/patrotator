@@ -1,6 +1,5 @@
 [CmdletBinding()]
 param(
-    [PSCredential] $Credential,
     [Parameter(Mandatory=$False, HelpMessage='Tenant ID (This is a GUID which represents the "Directory ID" of the Entra tenant into which you want to create the apps')]
     [string] $tenantId
 )
@@ -38,7 +37,7 @@ Function CreateAppKey([DateTime] $fromDate, [double] $durationInYears, [string]$
         "startDateTime" = $fromDate.ToString("o")
         "endDateTime" = $endDate.ToString("o")
         "secretText" = $pw
-        "keyId" = $keyId
+#        "keyId" = $keyId
     }
     return $key
 }
@@ -146,87 +145,91 @@ Function ConfigureApplications
     # into which you want to create the apps. Look it up in the Azure portal in the "Properties" of the Entra.
 
     # Login to Microsoft Graph PowerShell
-    if (!$Credential -and $TenantId)
+    if ($TenantId)
     {
         $creds = Connect-MgGraph -TenantId $tenantId
     }
     else
     {
-        if (!$TenantId)
-        {
-            $creds = Connect-MgGraph -Credential $Credential
-        }
-        else
-        {
-            $creds = Connect-MgGraph -TenantId $tenantId -Credential $Credential
-        }
+        $creds = Connect-MgGraph
     }
 
-    if (!$tenantId)
-    {
-        $tenantId = (Get-MgOrganization).Id
+    try{
+        if (!$tenantId)
+        {
+            $tenantId = (Get-MgOrganization).Id
+        }
+        $tenant = Get-MgOrganization
+        $tenantName =  ($tenant.VerifiedDomains | Where-Object { $_.IsDefault -eq $True }).Name
+        $currentUser = (Get-MgContext).Account.Id
+        # Get the user running the script to add the user as the app owner
+        $user = Get-MgUser -UserId (Get-MgContext).Account
+    
+        # Create the pythonwebapp Entra application
+        Write-Host "Creating the Entra application (python-webapp)"
+        # Get a 2 years application key for the pythonwebapp Application
+        $pw = ComputePassword
+        $fromDate = [DateTime]::Now;
+        $key = CreateAppKey -fromDate $fromDate -durationInYears 2 -pw $pw
+        $pythonwebappAppKey = $pw
+        # create the application 
+
+        $pythonwebappAadApplication = New-MgApplication -DisplayName "PAT-rotation-webapp" -Web @{ RedirectUris = @("https://localhost:5001/getAToken"); ImplicitGrantSettings = @{ EnableIdTokenIssuance = $true } } -SignInAudience "AzureADMyOrg"
+
+        # create the service principal of the newly created application 
+        $currentAppId = $pythonwebappAadApplication.AppId
+        $pythonwebappServicePrincipal = New-MgServicePrincipal -AppId $currentAppId
+        
+        # add the user running the script as an app owner if needed
+        $owner = Get-MgApplicationOwner -ApplicationId $pythonwebappAadApplication.Id
+        if ($owner -eq $null)
+        { 
+            $NewOwner = @{
+                "@odata.id"= "https://graph.microsoft.com/v1.0/directoryObjects/{"+ $user.Id +"}"
+            }
+            New-MgApplicationOwnerByRef -ApplicationId $pythonwebappAadApplication.Id -BodyParameter $NewOwner
+            Write-Host "'$($user.UserPrincipalName)' added as an application owner to app '$($pythonwebappServicePrincipal.DisplayName)'"
+        }        
+        
+        Write-Host "Done creating the PAT-rotation-webapp application."
+
+        $secret = Add-MgApplicationPassword -ApplicationId $pythonwebappAadApplication.Id
+        
+        # URL of the Entra application in the Azure portal
+        # Future? $pythonwebappPortalUrl = "https://portal.azure.com/#@"+$tenantName+"/blade/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/Overview/appId/"+$pythonwebappAadApplication.AppId+"/objectId/"+$pythonwebappAadApplication.ObjectId+"/isMSAApp/"
+        $pythonwebappPortalUrl = "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/CallAnAPI/appId/"+$pythonwebappAadApplication.AppId+"/objectId/"+$pythonwebappAadApplication.Id+"/isMSAApp/"
+        Add-Content -Value "<tr><td>pythonwebapp</td><td>$currentAppId</td><td><a href='$pythonwebappPortalUrl'>python-webapp</a></td></tr>" -Path createdApps.html
+        
+        $requiredResourceAccess = @()
+
+        $scopeId_UserBasicReadAll = Find-MgGraphPermission User.ReadBasic.All -ExactMatch -PermissionType Delegated | Select-Object -ExpandProperty Id
+        # Add Required Resources Access (from 'pythonwebapp' to 'Microsoft Graph')
+
+        $requiredResourceAccess = @{
+            ResourceAppId = "00000003-0000-0000-c000-000000000000"
+            ResourceAccess = @(
+                @{
+                    Id = $scopeId_UserBasicReadAll
+                    Type = "Scope"
+                }
+            )
+        }
+        Write-Host "Getting access from 'PAT-rotation-webapp' to 'Microsoft Graph'"
+        
+        Update-MgApplication -ApplicationId $pythonwebappAadApplication.Id -RequiredResourceAccess $requiredResourceAccess
+        Write-Host "Granted permissions."
+        
+        # Update config file for 'pythonwebapp'
+        $configFile = $pwd.Path + "\..\app_config.py"
+        Write-Host "Updating the sample code ($configFile)"
+        $dictionary = @{ "Enter_the_Tenant_Name_Here" = $tenantName;"Enter_the_Client_Secret_Here" = $secret.SecretText;"Enter_the_Application_Id_here" = $pythonwebappAadApplication.AppId };
+        ReplaceInTextFile -configFilePath $configFile -dictionary $dictionary
+        
+        Add-Content -Value "</tbody></table></body></html>" -Path createdApps.html      
     }
-
-    $tenant = Get-MgOrganization
-    $tenantName =  ($tenant.VerifiedDomains | Where-Object { $_.IsDefault -eq $True }).Name
-
-    # Get the user running the script to add the user as the app owner
-    $user = Get-MgUser -UserId $creds.Account.Id
-
-   # Create the pythonwebapp Entra application
-   Write-Host "Creating the Entra application (python-webapp)"
-   # Get a 2 years application key for the pythonwebapp Application
-   $pw = ComputePassword
-   $fromDate = [DateTime]::Now;
-   $key = CreateAppKey -fromDate $fromDate -durationInYears 2 -pw $pw
-   $pythonwebappAppKey = $pw
-   # create the application 
-   $pythonwebappAadApplication = New-MgApplication -DisplayName "python-webapp" `
-                                                    -Web @{ "redirectUris" = @("http://localhost:5000/getAToken") } `
-                                                    -IdentifierUris @("https://$tenantName/python-webapp") `
-                                                    -PasswordCredentials @($key) `
-                                                    -SignInAudience "EntraMyOrg"
-
-   # create the service principal of the newly created application 
-   $currentAppId = $pythonwebappAadApplication.AppId
-   $pythonwebappServicePrincipal = New-MgServicePrincipal -AppId $currentAppId
-
-   # add the user running the script as an app owner if needed
-   $owner = Get-MgApplicationOwner -ApplicationId $pythonwebappAadApplication.Id
-   if ($owner -eq $null)
-   { 
-        Add-MgApplicationOwner -ApplicationId $pythonwebappAadApplication.Id -DirectoryObjectId $user.Id
-        Write-Host "'$($user.UserPrincipalName)' added as an application owner to app '$($pythonwebappServicePrincipal.DisplayName)'"
-   }
-
-
-   Write-Host "Done creating the pythonwebapp application (python-webapp)"
-
-   # URL of the AAD application in the Azure portal
-   # Future? $pythonwebappPortalUrl = "https://portal.azure.com/#@"+$tenantName+"/blade/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/Overview/appId/"+$pythonwebappAadApplication.AppId+"/objectId/"+$pythonwebappAadApplication.ObjectId+"/isMSAApp/"
-   $pythonwebappPortalUrl = "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/CallAnAPI/appId/"+$pythonwebappAadApplication.AppId+"/objectId/"+$pythonwebappAadApplication.Id+"/isMSAApp/"
-   Add-Content -Value "<tr><td>pythonwebapp</td><td>$currentAppId</td><td><a href='$pythonwebappPortalUrl'>python-webapp</a></td></tr>" -Path createdApps.html
-
-   $requiredResourcesAccess = @()
-
-   # Add Required Resources Access (from 'pythonwebapp' to 'Microsoft Graph')
-   Write-Host "Getting access from 'pythonwebapp' to 'Microsoft Graph'"
-   $requiredPermissions = GetRequiredPermissions -applicationDisplayName "Microsoft Graph" `
-                                                -requiredDelegatedPermissions "User.ReadBasic.All" `
-
-   $requiredResourcesAccess += $requiredPermissions
-
-
-   Update-MgApplication -ApplicationId $pythonwebappAadApplication.Id -RequiredResourceAccess $requiredResourcesAccess
-   Write-Host "Granted permissions."
-
-   # Update config file for 'pythonwebapp'
-   $configFile = $pwd.Path + "\..\app_config.py"
-   Write-Host "Updating the sample code ($configFile)"
-   $dictionary = @{ "Enter_the_Tenant_Name_Here" = $tenantName;"Enter_the_Client_Secret_Here" = $pythonwebappAppKey;"Enter_the_Application_Id_here" = $pythonwebappAadApplication.AppId };
-   ReplaceInTextFile -configFilePath $configFile -dictionary $dictionary
-  
-   Add-Content -Value "</tbody></table></body></html>" -Path createdApps.html  
+    finally {
+        Disconnect-MgGraph
+    }
 }
 
 # Pre-requisites
@@ -237,4 +240,4 @@ if ((Get-Module -ListAvailable -Name "Microsoft.Graph") -eq $null) {
 Import-Module Microsoft.Graph
 
 # Run interactively (will ask you for the tenant ID)
-ConfigureApplications -Credential $Credential -tenantId $TenantId
+ConfigureApplications -tenantId $TenantId

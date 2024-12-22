@@ -3,7 +3,7 @@ import os
 # To configure this application, fill in your application (client) ID, client secret, 
 # Entra tenant ID, and Azure DevOps collection name in the placeholders below.
 
-CLIENT_ID = "Enter_the_Application_Id_here" 
+CLIENT_ID = "499b0a27-9c7b-42ed-8311-b8ca7b4d1845" 
 # Application (client) ID of app registration
 
 CLIENT_SECRET = "Enter_the_Client_Secret_here"
@@ -15,7 +15,7 @@ CLIENT_SECRET = "Enter_the_Client_Secret_here"
 #     raise ValueError("Need to define CLIENT_SECRET environment variable")
 
 AUTHORITY = "https://login.microsoftonline.com/Enter_the_Tenant_ID_Here"  # For multi-tenant app
-# AUTHORITY = "https://login.microsoftonline.com/Enter_the_Tenant_Name_Here"
+# AUTHORITY = "https://login.microsoftonline.com/xenalm.com"
 
 REDIRECT_PATH = "/getAToken"  # Used for forming an absolute URL to your redirect URI.
                               # The absolute URL must match the redirect URI you set
