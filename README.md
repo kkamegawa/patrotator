@@ -88,7 +88,7 @@ $ pip install -r requirements.txt
 Run app.py from shell or command line. Note that the host and port values need to match what you've set up in your redirect_uri:
 
 ```Shell
-$ flask run --host localhost --port 5000
+$ flask run --host localhost --port 5010
 ```
 
 or 

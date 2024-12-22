@@ -17,87 +17,8 @@ param(
 #>
 
 # Create a password that can be used as an application key
-Function ComputePassword
-{
-    $aesManaged = [System.Security.Cryptography.Aes]::Create()
-    $aesManaged.Mode = [System.Security.Cryptography.CipherMode]::CBC
-    $aesManaged.Padding = [System.Security.Cryptography.PaddingMode]::Zeros
-    $aesManaged.BlockSize = 128
-    $aesManaged.KeySize = 256
-    $aesManaged.GenerateKey()
-    return [System.Convert]::ToBase64String($aesManaged.Key)
-}
 
 # Create an application key
-Function CreateAppKey([DateTime] $fromDate, [double] $durationInYears, [string]$pw)
-{
-    $endDate = $fromDate.AddYears($durationInYears) 
-    $keyId = [Guid]::NewGuid().ToString()
-    $key = @{
-        "startDateTime" = $fromDate.ToString("o")
-        "endDateTime" = $endDate.ToString("o")
-        "secretText" = $pw
-#        "keyId" = $keyId
-    }
-    return $key
-}
-
-# Adds the requiredAccesses (expressed as a pipe separated string) to the requiredAccess structure
-# The exposed permissions are in the $exposedPermissions collection, and the type of permission (Scope | Role) is 
-# described in $permissionType
-Function AddResourcePermission($requiredAccess, $exposedPermissions, [string]$requiredAccesses, [string]$permissionType)
-{
-    foreach($permission in $requiredAccesses.Trim().Split("|"))
-    {
-        foreach($exposedPermission in $exposedPermissions)
-        {
-            if ($exposedPermission.Value -eq $permission)
-            {
-                $resourceAccess = @{
-                    "id" = $exposedPermission.Id
-                    "type" = $permissionType
-                }
-                $requiredAccess.Add($resourceAccess)
-            }
-        }
-    }
-}
-
-#
-# Example: GetRequiredPermissions "Microsoft Graph"  "Graph.Read|User.Read"
-# See also: http://stackoverflow.com/questions/42164581/how-to-configure-a-new-azure-ad-application-through-powershell
-Function GetRequiredPermissions([string] $applicationDisplayName, [string] $requiredDelegatedPermissions, [string]$requiredApplicationPermissions, $servicePrincipal)
-{
-    # If we are passed the service principal we use it directly, otherwise we find it from the display name (which might not be unique)
-    if ($servicePrincipal)
-    {
-        $sp = $servicePrincipal
-    }
-    else
-    {
-        $sp = Get-MgServicePrincipal -Filter "displayName eq '$applicationDisplayName'"
-    }
-    $appid = $sp.AppId
-    $requiredAccess = @{
-        "resourceAppId" = $appid
-        "resourceAccess" = @()
-    }
-
-    # $sp.Oauth2Permissions | Select Id,AdminConsentDisplayName,Value: To see the list of all the Delegated permissions for the application:
-    if ($requiredDelegatedPermissions)
-    {
-        AddResourcePermission $requiredAccess.resourceAccess -exposedPermissions $sp.Oauth2PermissionScopes -requiredAccesses $requiredDelegatedPermissions -permissionType "Scope"
-    }
-    
-    # $sp.AppRoles | Select Id,AdminConsentDisplayName,Value: To see the list of all the Application permissions for the application
-    if ($requiredApplicationPermissions)
-    {
-        AddResourcePermission $requiredAccess.resourceAccess -exposedPermissions $sp.AppRoles -requiredAccesses $requiredApplicationPermissions -permissionType "Role"
-    }
-    return $requiredAccess
-}
-
-
 Function ReplaceInLine([string] $line, [string] $key, [string] $value)
 {
     $index = $line.IndexOf($key)
@@ -167,11 +88,6 @@ Function ConfigureApplications
     
         # Create the pythonwebapp Entra application
         Write-Host "Creating the Entra application (python-webapp)"
-        # Get a 2 years application key for the pythonwebapp Application
-        $pw = ComputePassword
-        $fromDate = [DateTime]::Now;
-        $key = CreateAppKey -fromDate $fromDate -durationInYears 2 -pw $pw
-        $pythonwebappAppKey = $pw
         # create the application 
 
         $pythonwebappAadApplication = New-MgApplication -DisplayName "PAT-rotation-webapp" -Web @{ RedirectUris = @("https://localhost:5001/getAToken"); ImplicitGrantSettings = @{ EnableIdTokenIssuance = $true } } -SignInAudience "AzureADMyOrg"
@@ -218,9 +134,11 @@ Function ConfigureApplications
         
         Update-MgApplication -ApplicationId $pythonwebappAadApplication.Id -RequiredResourceAccess $requiredResourceAccess
         Write-Host "Granted permissions."
+        write-host "AppId: $($pythonwebappAadApplication.AppId)"
+        write-host "Secret: $($secret.SecretText)"
         
         # Update config file for 'pythonwebapp'
-        $configFile = $pwd.Path + "\..\app_config.py"
+        $configFile = Join-Path $pwd.Path -ChildPath ".." "app_config.py"
         Write-Host "Updating the sample code ($configFile)"
         $dictionary = @{ "Enter_the_Tenant_Name_Here" = $tenantName;"Enter_the_Client_Secret_Here" = $secret.SecretText;"Enter_the_Application_Id_here" = $pythonwebappAadApplication.AppId };
         ReplaceInTextFile -configFilePath $configFile -dictionary $dictionary

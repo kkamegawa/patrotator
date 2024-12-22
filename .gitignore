@@ -130,3 +130,9 @@ dmypy.json
 
 .DS_Store
 Thumbs.db
+
+flask_session/
+
+.idea/
+
+Pipfile
