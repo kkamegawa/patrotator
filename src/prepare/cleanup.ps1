@@ -59,4 +59,4 @@ This function removes the Entra applications for the sample. These applications 
     
 }
 
-Cleanup -Credential $Credential -tenantId $TenantId
+Cleanup -tenantId $TenantId
